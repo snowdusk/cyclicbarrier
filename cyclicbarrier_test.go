@@ -60,7 +60,7 @@ func TestNew(t *testing.T) {
 func TestNewWithAction(t *testing.T) {
 	tests := []func(){
 		func() {
-			b := NewWithAction(10, func() error { return nil })
+			b := NewWithAction(10, func(interface{}) error { return nil })
 			checkBarrier(t, b, 10, 0, false)
 			if b.(*cyclicBarrier).barrierAction == nil {
 				t.Error("barrier doesn't have expected barrierAction")
@@ -79,7 +79,7 @@ func TestNewWithAction(t *testing.T) {
 					t.Error("Panic expected")
 				}
 			}()
-			_ = NewWithAction(0, func() error { return nil })
+			_ = NewWithAction(0, func(interface{}) error { return nil })
 		},
 		func() {
 			defer func() {
@@ -87,7 +87,7 @@ func TestNewWithAction(t *testing.T) {
 					t.Error("Panic expected")
 				}
 			}()
-			_ = NewWithAction(-1, func() error { return nil })
+			_ = NewWithAction(-1, func(interface{}) error { return nil })
 		},
 	}
 	for _, test := range tests {
@@ -104,7 +104,7 @@ func TestAwaitOnce(t *testing.T) {
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func() {
-			err := b.Await(ctx)
+			err := b.Await(ctx, nil)
 			if err != nil {
 				panic(err)
 			}
@@ -127,7 +127,7 @@ func TestAwaitMany(t *testing.T) {
 		wg.Add(1)
 		go func(num int) {
 			for j := 0; j < m; j++ {
-				err := b.Await(ctx)
+				err := b.Await(ctx, nil)
 				if err != nil {
 					panic(err)
 				}
@@ -151,7 +151,7 @@ func TestAwaitOnceCtxDone(t *testing.T) {
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(num int) {
-			err := b.Await(ctx)
+			err := b.Await(ctx, nil)
 			if err == context.DeadlineExceeded {
 				atomic.AddInt32(&deadlineCount, 1)
 			} else if err == ErrBrokenBarrier {
@@ -184,7 +184,7 @@ func TestAwaitManyCtxDone(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			for {
-				err := b.Await(ctx)
+				err := b.Await(ctx, nil)
 				if err != nil {
 					if err != context.DeadlineExceeded && err != ErrBrokenBarrier {
 						panic("must be context.DeadlineExceeded or ErrBrokenBarrier error")
@@ -206,7 +206,7 @@ func TestAwaitAction(t *testing.T) {
 	ctx := context.Background()
 
 	cnt := 0
-	b := NewWithAction(n, func() error {
+	b := NewWithAction(n, func(interface{}) error {
 		cnt++
 		return nil
 	})
@@ -216,7 +216,7 @@ func TestAwaitAction(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			for j := 0; j < m; j++ {
-				err := b.Await(ctx)
+				err := b.Await(ctx, nil)
 				if err != nil {
 					panic(err)
 				}
@@ -246,7 +246,7 @@ func TestReset(t *testing.T) {
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func() {
-			err := b.Await(ctx)
+			err := b.Await(ctx, nil)
 			if err != ErrBrokenBarrier {
 				panic(err)
 			}
@@ -267,7 +267,7 @@ func TestAwaitErrorInActionThenReset(t *testing.T) {
 	isActionCalled := false
 	var expectedErrCount, errBrokenBarrierCount int32
 
-	b := NewWithAction(n, func() error {
+	b := NewWithAction(n, func(interface{}) error {
 		isActionCalled = true
 		return errExpected
 	})
@@ -276,7 +276,7 @@ func TestAwaitErrorInActionThenReset(t *testing.T) {
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func() {
-			err := b.Await(ctx)
+			err := b.Await(ctx, nil)
 			if err == errExpected {
 				atomic.AddInt32(&expectedErrCount, 1)
 			} else if err == ErrBrokenBarrier {
@@ -304,7 +304,7 @@ func TestAwaitErrorInActionThenReset(t *testing.T) {
 	}
 
 	// call await on broken barrier must return ErrBrokenBarrier
-	if b.Await(ctx) != ErrBrokenBarrier {
+	if b.Await(ctx, nil) != ErrBrokenBarrier {
 		t.Error("call await on broken barrier must return ErrBrokenBarrier")
 	}
 
@@ -336,7 +336,7 @@ func TestAwaitTooMuchGoroutines(t *testing.T) {
 				wg.Done()
 			}()
 			for j := 0; j < m; j++ {
-				err := b.Await(ctx)
+				err := b.Await(ctx, nil)
 				if err != nil {
 					panic(err)
 				}
@@ -350,4 +350,28 @@ func TestAwaitTooMuchGoroutines(t *testing.T) {
 	if panicCount == 0 {
 		t.Error("barrier must panic when await is called from too much goroutines")
 	}
+}
+
+func TestActionWithArg(t *testing.T) {
+	b := NewWithAction(2, func(arg interface{}) error {
+		x := arg.(int)
+		if x != 2 {
+			t.Error("action with arg failed")
+		}
+		return nil
+	})
+
+	wg := sync.WaitGroup{}
+	ctx := context.TODO()
+	for i := 1; i <= 2; i++ {
+		wg.Add(1)
+		go func(num int) {
+			time.Sleep(time.Duration(num) * 2 * time.Second)
+			if err := b.Await(ctx, num); err != nil {
+				panic(err)
+			}
+			wg.Done()
+		}(i)
+	}
+	wg.Wait()
 }

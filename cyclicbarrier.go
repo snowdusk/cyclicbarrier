@@ -28,7 +28,7 @@ type CyclicBarrier interface {
 	// If the current goroutine is the last goroutine to arrive, and a non-nil barrier action was supplied in the constructor,
 	// then the current goroutine runs the action before allowing the other goroutines to continue.
 	// If an error occurs during the barrier action then that error will be returned and the barrier is placed in the broken state.
-	Await(ctx context.Context) error
+	Await(ctx context.Context, arg interface{}) error
 
 	// Reset resets the barrier to its initial state.
 	// If any parties are currently waiting at the barrier, they will return with a ErrBrokenBarrier.
@@ -63,7 +63,7 @@ type round struct {
 // cyclicBarrier impl CyclicBarrier intf
 type cyclicBarrier struct {
 	parties       int
-	barrierAction func() error
+	barrierAction func(interface{}) error
 
 	lock  sync.RWMutex
 	round *round
@@ -86,7 +86,7 @@ func New(parties int) CyclicBarrier {
 
 // NewWithAction initializes a new instance of the CyclicBarrier,
 // specifying the number of parties and the barrier action.
-func NewWithAction(parties int, barrierAction func() error) CyclicBarrier {
+func NewWithAction(parties int, barrierAction func(interface{}) error) CyclicBarrier {
 	if parties <= 0 {
 		panic("parties must be positive number")
 	}
@@ -101,7 +101,7 @@ func NewWithAction(parties int, barrierAction func() error) CyclicBarrier {
 	}
 }
 
-func (b *cyclicBarrier) Await(ctx context.Context) error {
+func (b *cyclicBarrier) Await(ctx context.Context, arg interface{}) error {
 	var (
 		ctxDoneCh <-chan struct{}
 	)
@@ -152,7 +152,7 @@ func (b *cyclicBarrier) Await(ctx context.Context) error {
 	} else {
 		// we are last, run the barrier action and reset the barrier
 		if b.barrierAction != nil {
-			err := b.barrierAction()
+			err := b.barrierAction(arg)
 			if err != nil {
 				b.breakBarrier(true)
 				return err
